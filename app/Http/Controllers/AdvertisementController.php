@@ -6,9 +6,9 @@ use Illuminate\Http\Request;
 use App\Models\Advertisement;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Storage;
-use Intervention\Image\Facades\Image;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
-
+use Intervention\Image\Facades\Image;
+use Illuminate\Support\Facades\Log;
 
 class AdvertisementController extends Controller
 {
@@ -22,7 +22,7 @@ class AdvertisementController extends Controller
         $request->validate([
             'name' => 'required',
             'description' => 'required',
-            'image' => 'image|mimes:jpeg,png,jpg,gif,svg|max:2048'
+            'image' => 'image|mimes:jpeg,png,jpg,gif,svg|max:2048',
         ]);
 
         $advertisement = Advertisement::create([
@@ -36,50 +36,43 @@ class AdvertisementController extends Controller
             $advertisement->update(['image' => $imagePath]);
         }
 
-        // Implement QR Code and template logic here...
+        // Generate QR Code
+        $qrCodeContent = route('advertisements.show', $advertisement->id);
+        $qrCode = QrCode::size(300)->generate($qrCodeContent);
 
-        // Generate dynamic QR Code URL
-        $qrCodeUrl = route('advertisements.show', $advertisement->id);
+        Log::info('QR Code Content: ' . $qrCodeContent);
+        // Load template image using asset
+        $templatePath = public_path('images/template.png');
+        if (!file_exists($templatePath)) {
+            return response()->json(['error' => 'Template image not found at ' . $templatePath]);
+        }
 
-        // Generate QR Code image
-        $qrCodeImage = $this->generateQrCode($qrCodeUrl);
+        $template = Image::make($templatePath);
+        $qrImage = Image::make($qrCode);
+        Log::info('QR Code Content12: ' . $qrImage);
+        // Log information before inserting QR Code
+        Log::info('Before inserting QR Code into template');
 
-        // Get the template design image (assuming it's stored in public/template.jpg)
-        $templateImagePath = public_path('template.jpg');
+        // Insert QR Code into template manually
+        $template->insert($qrImage, 'bottom-right', 10, 10);
 
-        // Open the template design image using Intervention Image
-        $templateImage = Image::make($templateImagePath);
-
-        // Append QR Code image to the template design image
-        $templateImage->insert($qrCodeImage, 'bottom-right', 10, 10);
+        // Log information after inserting QR Code
+        Log::info('After inserting QR Code into template');
 
         // Save the final image
-        $finalImagePath = 'advertisements/final_image.png';
-        $templateImage->save(public_path($finalImagePath));
-
-        // Update the advertisement with the final image path
-        $advertisement->update(['image' => $finalImagePath]);
+        $finalImagePath = 'advertisements/final_image.png'; // Adjust the path as needed
+        $template->save(public_path($finalImagePath));
 
         return redirect()->route('advertisements.download', $advertisement->id);
     }
 
-    private function generateQrCode($url)
-    {
-        $qrCode = QrCode::format('png')->size(200)->generate($url);
-
-        $dataUri = 'data:image/png;base64,' . base64_encode($qrCode);
-
-        return Image::make($dataUri);
-    }
     public function download($id)
     {
         $advertisement = Advertisement::findOrFail($id);
+        $finalImagePath = public_path('advertisements/final_image.png');
+        $headers = ['Content-Type' => 'image/png'];
 
-        // Implement logic to fetch the final image path based on $advertisement->id
-
-        $imagePath = 'adversitements\final_image.png'; // Replace with your logic
-
-        return response()->download(public_path($imagePath));
+        return response()->download($finalImagePath, 'final_image.png', $headers);
     }
 
     public function edit($id)
@@ -88,6 +81,7 @@ class AdvertisementController extends Controller
 
         return view('advertisements.edit', compact('advertisement'));
     }
+
     public function update(Request $request, $id)
     {
         $request->validate([
@@ -117,8 +111,9 @@ class AdvertisementController extends Controller
 
         Session::flash('success', 'Advertisement Edited successfully.');
 
-        return redirect()->route('home');;
+        return redirect()->route('home');
     }
+
     public function destroy($id)
     {
         $advertisement = Advertisement::findOrFail($id);
